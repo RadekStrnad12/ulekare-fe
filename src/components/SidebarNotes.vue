@@ -1,6 +1,7 @@
 <script setup>
-import {onMounted, ref, watch} from 'vue'
+import {onMounted, ref, computed} from 'vue'
 import {listNotes} from '@/services/notes'
+import {listPriorities} from '@/services/meta'
 import BaseButton from '@/components/BaseButton.vue'
 import MenuItem from '@/components/MenuItem.vue'
 
@@ -13,11 +14,28 @@ const notes = ref([])
 const loading = ref(false)
 const error = ref(null)
 
+// Priority filter state
+const priorities = ref([])
+const selectedPriority = ref(localStorage.getItem('notes.priorityFilter') || '') // '' => All
+
+const filteredNotes = computed(() => {
+    const p = (selectedPriority.value || '').trim()
+    if (!p) return notes.value
+    return notes.value.filter(n => (n?.priority || '') === p)
+})
+
 async function load() {
     loading.value = true
     error.value = null
     try {
+        // Load notes
         notes.value = (await listNotes()).data
+        // Load priorities for filter UI (ignore errors silently)
+        try {
+            priorities.value = (await listPriorities()).data || []
+        } catch (e) {
+            priorities.value = []
+        }
     } catch (e) {
         error.value = e
     } finally {
@@ -46,6 +64,12 @@ function select(uid) {
     emit('update:modelValue', uid)
 }
 
+function onPriorityChange(e) {
+    const v = e?.target?.value ?? ''
+    selectedPriority.value = v
+    localStorage.setItem('notes.priorityFilter', v)
+}
+
 onMounted(load)
 
 defineExpose({reload: load, prepend})
@@ -58,11 +82,21 @@ defineExpose({reload: load, prepend})
                 <h2 class="text-lg font-semibold">Notes</h2>
                 <BaseButton variant="primary" @click="$emit('create')">New</BaseButton>
             </div>
+
+            <!-- Priority filter -->
+            <div class="px-2">
+                <label class="block text-xs text-gray-600 mb-1">Filter by priority</label>
+                <select :value="selectedPriority" @change="onPriorityChange" class="w-full border rounded px-2 py-1 text-sm">
+                    <option value="">All priorities</option>
+                    <option v-for="p in priorities" :key="p.code" :value="p.code">{{ p.label }}</option>
+                </select>
+            </div>
+
             <div v-if="loading" class="p-4 text-gray-500 text-sm">Loading…</div>
             <div v-else-if="error" class="p-4 text-red-600 text-sm">Failed to load.</div>
             <nav v-else class="flex flex-1 flex-col">
                 <ul role="list" class="flex flex-1 flex-col gap-2">
-                    <li v-for="n in notes" :key="n.uid">
+                    <li v-for="n in filteredNotes" :key="n.uid">
                         <MenuItem
                             :color="n.color"
                             :active="n.uid === modelValue"
